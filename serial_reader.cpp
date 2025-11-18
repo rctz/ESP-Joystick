@@ -1,7 +1,11 @@
 #include <iostream>
-#include <windows.h>
 #include <string>
 #include <cstdint>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+#include <cerrno>
+#include <cstring>
 
 // Data structure for joystick data
 struct JoystickData {
@@ -13,54 +17,77 @@ struct JoystickData {
 
 class SerialReader {
 private:
-    HANDLE hSerial;
+    int fd;
     const char* portName;
-    DWORD baudRate;
+    int baudRate;
 
 public:
-    SerialReader(const char* port, DWORD baud = CBR_115200)
-        : portName(port), baudRate(baud), hSerial(INVALID_HANDLE_VALUE) {}
+    SerialReader(const char* port, int baud = 115200)
+        : portName(port), baudRate(baud), fd(-1) {}
 
     ~SerialReader() {
         close();
     }
 
     bool open() {
-        hSerial = CreateFileA(portName, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
-        if (hSerial == INVALID_HANDLE_VALUE) {
-            std::cerr << "Error opening serial port " << portName << std::endl;
+        fd = ::open(portName, O_RDWR | O_NOCTTY | O_NONBLOCK);
+        if (fd < 0) {
+            std::cerr << "Error opening serial port " << portName << ": " << strerror(errno) << std::endl;
             return false;
         }
 
-        DCB dcbSerialParams = {0};
-        dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
-
-        if (!GetCommState(hSerial, &dcbSerialParams)) {
-            std::cerr << "Error getting serial port state" << std::endl;
+        struct termios tty;
+        if (tcgetattr(fd, &tty) != 0) {
+            std::cerr << "Error getting serial port attributes: " << strerror(errno) << std::endl;
             close();
             return false;
         }
 
-        dcbSerialParams.BaudRate = baudRate;
-        dcbSerialParams.ByteSize = 8;
-        dcbSerialParams.StopBits = ONESTOPBIT;
-        dcbSerialParams.Parity = NOPARITY;
+        // Clear old settings
+        tty.c_cflag &= ~PARENB;  // No parity
+        tty.c_cflag &= ~CSTOPB;  // 1 stop bit
+        tty.c_cflag &= ~CSIZE;   // Clear data size bits
+        tty.c_cflag |= CS8;      // 8 data bits
+        tty.c_cflag &= ~CRTSCTS; // No hardware flow control
+        tty.c_cflag |= CREAD | CLOCAL; // Enable receiver, ignore modem control
 
-        if (!SetCommState(hSerial, &dcbSerialParams)) {
-            std::cerr << "Error setting serial port parameters" << std::endl;
-            close();
-            return false;
+        // Disable software flow control
+        tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+
+        // Non-canonical mode
+        tty.c_lflag &= ~ICANON;
+        tty.c_lflag &= ~ECHO;    // Disable echo
+        tty.c_lflag &= ~ECHOE;   // Disable erasure
+        tty.c_lflag &= ~ECHONL;  // Disable new-line echo
+        tty.c_lflag &= ~ISIG;    // Disable signal characters
+
+        // Disable output processing
+        tty.c_oflag &= ~OPOST;
+        tty.c_oflag &= ~ONLCR;   // Prevent conversion of newline to carriage return
+
+        // Set timeouts (100ms read timeout)
+        tty.c_cc[VMIN] = 0;
+        tty.c_cc[VTIME] = 1;    // 0.1 seconds
+
+        // Set baud rate
+        speed_t speed;
+        switch (baudRate) {
+            case 9600: speed = B9600; break;
+            case 19200: speed = B19200; break;
+            case 38400: speed = B38400; break;
+            case 57600: speed = B57600; break;
+            case 115200: speed = B115200; break;
+            default:
+                std::cerr << "Unsupported baud rate: " << baudRate << std::endl;
+                close();
+                return false;
         }
 
-        COMMTIMEOUTS timeouts = {0};
-        timeouts.ReadIntervalTimeout = 50;
-        timeouts.ReadTotalTimeoutConstant = 50;
-        timeouts.ReadTotalTimeoutMultiplier = 10;
-        timeouts.WriteTotalTimeoutConstant = 50;
-        timeouts.WriteTotalTimeoutMultiplier = 10;
+        cfsetospeed(&tty, speed);
+        cfsetispeed(&tty, speed);
 
-        if (!SetCommTimeouts(hSerial, &timeouts)) {
-            std::cerr << "Error setting serial port timeouts" << std::endl;
+        if (tcsetattr(fd, TCSANOW, &tty) != 0) {
+            std::cerr << "Error setting serial port attributes: " << strerror(errno) << std::endl;
             close();
             return false;
         }
@@ -69,29 +96,23 @@ public:
     }
 
     void close() {
-        if (hSerial != INVALID_HANDLE_VALUE) {
-            CloseHandle(hSerial);
-            hSerial = INVALID_HANDLE_VALUE;
+        if (fd >= 0) {
+            ::close(fd);
+            fd = -1;
         }
     }
 
     bool readByte(uint8_t& byte) {
-        DWORD bytesRead;
-        if (!ReadFile(hSerial, &byte, 1, &bytesRead, NULL)) {
-            return false;
-        }
+        ssize_t bytesRead = ::read(fd, &byte, 1);
         return bytesRead == 1;
     }
 
     bool readData(uint8_t* buffer, size_t length) {
-        DWORD totalBytesRead = 0;
+        size_t totalBytesRead = 0;
         while (totalBytesRead < length) {
-            DWORD bytesRead;
-            if (!ReadFile(hSerial, buffer + totalBytesRead, length - totalBytesRead, &bytesRead, NULL)) {
-                return false;
-            }
-            if (bytesRead == 0) {
-                return false; // Timeout
+            ssize_t bytesRead = ::read(fd, buffer + totalBytesRead, length - totalBytesRead);
+            if (bytesRead <= 0) {
+                return false; // Error or timeout
             }
             totalBytesRead += bytesRead;
         }
@@ -161,7 +182,7 @@ public:
 };
 
 int main() {
-    SerialReader serial("COM3");
+    SerialReader serial("/dev/ttyUSB0");  // Change to /dev/ttyACM0 or other appropriate device
 
     if (!serial.open()) {
         std::cerr << "Failed to open serial port" << std::endl;
