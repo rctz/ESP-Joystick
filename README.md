@@ -1,32 +1,47 @@
 # Serial Reader (C++)
 
-โปรแกรมนี้เป็น C++ version ของโค้ด Python สำหรับอ่านข้อมูลจอยสติ๊กจากพอร์ตอนุกรม
+This program is a C++ version of the Python code for reading joystick data from a serial port.
 
-## การคอมไพล์ (MinGW/MSYS2)
+## BluePad32 Library Installation
+
+### Arduino IDE Setup
+1. Add board packages in Arduino IDE (File > Preferences > Additional Boards Manager URLs):
+   - ESP32: `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`
+   - Bluepad32: `https://raw.githubusercontent.com/ricardoquesada/esp32-arduino-lib-builder/master/bluepad32_files/package_esp32_bluepad32_index.json`
+
+2. Install both packages via Tools > Board > Boards Manager
+3. Select "ESP32 + Bluepad32 Arduino" board from Tools > Board
+4. Open example: File > Examples > Bluepad32_ESP32 > Controller
+5. Select `esp32_bluepad32` -> `DOIT ESP32 DEVKIT V1` 
+
+
+**Compatible with ESP32 / ESP32-S3 / ESP32-C3 modules**
+
+## Compilation (MinGW/MSYS2)
 ```bash
 g++ -o serial_reader.exe serial_reader.cpp
 ```
 
-## การคอมไพล์ (Visual Studio)
+## Compilation (Visual Studio)
 ```bash
 cl /EHsc serial_reader.cpp
 ```
 
-## การใช้งาน
-1. เชื่อมต่ออุปกรณ์กับพอร์ต COM3 (หรือแก้ไขโค้ดเป็นพอร์ตที่ต้องการ)
-2. รันโปรแกรม
-3. โปรแกรมจะแสดงข้อมูลจอยสติ๊กที่ได้รับจาก ESP
+## Usage
+1. Connect device to COM3 port (or modify code for desired port)
+2. Run the program
+3. The program will display joystick data received from ESP
 
-## ฟีเจอร์
-- รองรับการสื่อสารแบบ serial ที่ 115200 baud rate
-- ตรวจสอบ start byte (0xAA)
-- ตรวจสอบความถูกต้องของข้อมูลด้วย CRC
-- แปลงข้อมูลจาก binary format เป็นตัวแปรที่ใช้งานได้
-- แสดงผลข้อมูลจอยสติ๊ก (buttons, misc, dpad, lx, ly, rx, ry)
+## Features
+- Serial communication support at 115200 baud rate
+- Start byte verification (0xAA)
+- Data integrity verification with CRC
+- Binary to variable data conversion
+- Joystick data display (buttons, misc, dpad, lx, ly, rx, ry)
 
-## โครงสร้างข้อมูล
-- Buttons: 16-bit (ปุ่มต่างๆ)
-- Misc: 8-bit (ข้อมูลเพิ่มเติม)
-- Dpad: 8-bit (ทิศทาง D-pad)
-- LX, LY: 16-bit signed (แกน X, Y ของ analog stick ซ้าย)
-- RX, RY: 16-bit signed (แกน X, Y ของ analog stick ขวา)
+## Data Structure
+- **Buttons**: 16-bit (various buttons)
+- **Misc**: 8-bit (additional information)
+- **Dpad**: 8-bit (D-pad direction)
+- **LX, LY**: 16-bit signed (left analog stick X, Y axes)
+- **RX, RY**: 16-bit signed (right analog stick X, Y axes)
