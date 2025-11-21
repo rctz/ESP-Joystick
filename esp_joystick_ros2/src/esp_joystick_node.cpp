@@ -1,5 +1,8 @@
 #include "esp_joystick_ros2/esp_joystick_node.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_components/register_node_macro.hpp"
 #include <chrono>
+#include <memory>
 
 namespace esp_joystick_ros2 {
 
@@ -145,16 +148,20 @@ esp_joystick_interfaces::msg::JoystickInfo
 EspJoystickNode::convert_to_joy_message(const JoyData &data) const {
   esp_joystick_interfaces::msg::JoystickInfo joy_msg;
 
+  RCLCPP_INFO(this->get_logger(), "Connected to ESP32 on %d", data.buttons);
+
   // Convert 16-bit button mask to individual button states
   // Based on typical gamepad layout:
-  joy_msg.y = (data.buttons >> 3) & 0x1;  // Y button (bit 3)
-  joy_msg.b = (data.buttons >> 1) & 0x1;  // B button (bit 1)
-  joy_msg.a = (data.buttons >> 0) & 0x1;  // A button (bit 0)
-  joy_msg.x = (data.buttons >> 2) & 0x1;  // X button (bit 2)
-  joy_msg.r1 = (data.buttons >> 5) & 0x1; // R1 button (bit 5)
-  joy_msg.r2 = (data.buttons >> 7) & 0x1; // R2 button (bit 7)
-  joy_msg.l1 = (data.buttons >> 4) & 0x1; // L1 button (bit 4)
-  joy_msg.l2 = (data.buttons >> 6) & 0x1; // L2 button (bit 6)
+  joy_msg.y = (data.buttons >> 3) & 0x1;      // Y button (bit 3)
+  joy_msg.b = (data.buttons >> 1) & 0x1;      // B button (bit 1)
+  joy_msg.a = (data.buttons >> 0) & 0x1;      // A button (bit 0)
+  joy_msg.x = (data.buttons >> 2) & 0x1;      // X button (bit 2)
+  joy_msg.r1 = (data.buttons >> 5) & 0x1;     // R1 button (bit 5)
+  joy_msg.r2 = (data.buttons >> 7) & 0x1;     // R2 button (bit 7)
+  joy_msg.l1 = (data.buttons >> 4) & 0x1;     // L1 button (bit 4)
+  joy_msg.l2 = (data.buttons >> 6) & 0x1;     // L2 button (bit 6)
+  joy_msg.axis_l = (data.buttons >> 8) & 0x1; // L2 button (bit 6)
+  joy_msg.axis_r = (data.buttons >> 9) & 0x1; // L1 button (bit 4)
 
   // D-pad directions
   joy_msg.up = (data.dpad >> 0) & 0x1;
@@ -185,3 +192,20 @@ void EspJoystickNode::log_connection_status(bool connected) const {
 }
 
 } // namespace esp_joystick_ros2
+
+int main(int argc, char *argv[]) {
+  rclcpp::init(argc, argv);
+
+  auto node = std::make_shared<esp_joystick_ros2::EspJoystickNode>();
+
+  try {
+    rclcpp::spin(node);
+  } catch (const std::exception &e) {
+    RCLCPP_ERROR(node->get_logger(), "Exception in main: %s", e.what());
+    rclcpp::shutdown();
+    return 1;
+  }
+
+  rclcpp::shutdown();
+  return 0;
+}

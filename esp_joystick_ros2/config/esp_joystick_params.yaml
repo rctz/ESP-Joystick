@@ -5,7 +5,7 @@ esp_joystick_node:
     baud_rate: 115200
 
     # Publishing settings
-    publish_rate: 10.0 # Hz - frequency of joy message publishing
+    publish_rate: 20.0 # Hz - frequency of joy message publishing
     max_button_count: 16 # Number of buttons in joy message
     max_axis_count: 8 # Number of axes in joy message
 

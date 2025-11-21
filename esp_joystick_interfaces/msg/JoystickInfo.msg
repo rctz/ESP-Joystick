@@ -7,6 +7,8 @@ uint8 r1
 uint8 r2
 uint8 l1
 uint8 l2
+uint8 axis_r
+uint8 axis_l
 
 # Direction
 uint8 up
