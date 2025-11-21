@@ -149,14 +149,11 @@ EspJoystickNode::convert_to_joy_message(const JoyData &data) const {
   joy_msg.header.stamp = this->now();
   joy_msg.header.frame_id = "joystick";
 
-  // Set default sizes
   joy_msg.buttons.resize(max_button_count_, 0);
   joy_msg.axes.resize(max_axis_count_, 0.0);
 
-  // Convert buttons
   convert_buttons(data.buttons, data.misc, data.dpad, joy_msg);
 
-  // Convert analog axes
   convert_axes(data, joy_msg);
 
   return joy_msg;
