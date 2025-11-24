@@ -34,7 +34,7 @@ EspJoystickNode::~EspJoystickNode() {
 void EspJoystickNode::declare_parameters() {
   this->declare_parameter("serial_port", "/dev/ttyUSB0");
   this->declare_parameter("baud_rate", 115200);
-  this->declare_parameter("publish_rate", 100.0); // Hz
+  this->declare_parameter("publish_rate", 20.0); // Hz
   this->declare_parameter("max_button_count", 16);
   this->declare_parameter("max_axis_count", 8);
   this->declare_parameter("crc_validation_enabled", true);
@@ -147,8 +147,6 @@ void EspJoystickNode::publish_timer_callback() {
 esp_joystick_interfaces::msg::JoystickInfo
 EspJoystickNode::convert_to_joy_message(const JoyData &data) const {
   esp_joystick_interfaces::msg::JoystickInfo joy_msg;
-
-  RCLCPP_INFO(this->get_logger(), "Connected to ESP32 on %d", data.buttons);
 
   // Convert 16-bit button mask to individual button states
   // Based on typical gamepad layout:
