@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(serial REQUIRED)
+find_package(esp_joystick_interfaces REQUIRED)
 # find_package(cxx-serial REQUIRED)
 
 # Include directories
