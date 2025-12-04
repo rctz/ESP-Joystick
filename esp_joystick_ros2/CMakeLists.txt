@@ -18,13 +18,12 @@ include_directories(include)
 
 # Add component library
 add_library(esp_joystick_component SHARED
-  src/esp_joystick_node.cpp
-  src/serial_reader.cpp
+  utils/serial_reader.cpp
 )
 
 # Add executable
 add_executable(esp_joystick_node
-  src/main.cpp
+  src/esp_joystick_node.cpp
 )
 
 # Add compile definitions
@@ -37,6 +36,7 @@ ament_target_dependencies(esp_joystick_component
   rclcpp_components
   sensor_msgs
   serial
+  esp_joystick_interfaces
 )
 
 # Executable dependencies
@@ -45,6 +45,7 @@ ament_target_dependencies(esp_joystick_node
   rclcpp_components
   sensor_msgs
   serial
+  esp_joystick_interfaces
 )
 target_link_libraries(esp_joystick_node
   esp_joystick_component

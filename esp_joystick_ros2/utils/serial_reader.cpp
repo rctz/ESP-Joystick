@@ -48,16 +48,10 @@ bool SerialReader::readPacket(JoyData &data) {
 
   try {
     uint8_t packet[PACKET_SIZE];
-    // Wait for start byte
-    if (!waitForStartByte()) {
-      return false; // No valid packet start found
-    }
 
-    packet[0] = START_BYTE;
-
-    if (!readPacketBytes(packet, PACKET_SIZE)) {
-      error_message_ = "Failed to read complete packet";
-      return false;
+    // Step 1: Check buffer and wait for start byte
+    if (!waitForStartByteAndReadPacket(packet)) {
+      return false; // No complete packet found
     }
 
     // Validate packet
@@ -100,41 +94,52 @@ uint8_t SerialReader::computeCRC(const uint8_t *data, size_t len) const {
   return crc;
 }
 
-bool SerialReader::waitForStartByte() {
+bool SerialReader::waitForStartByteAndReadPacket(uint8_t *packet) {
   uint8_t byte;
   try {
-    // Look for start byte with timeout
+    // Step 1: Find start byte
     while (true) {
+      // Check if there are bytes available in the buffer first
+      if (serial_->available() == 0) {
+        // No data available, wait a bit and try again
+        usleep(1000); // 1ms delay to prevent busy-waiting
+        continue;
+      }
+
       size_t bytes_read = serial_->read(&byte, 1);
       if (bytes_read == 0) {
         return false; // Timeout
       }
 
       if (byte == START_BYTE) {
-        return true;
+        packet[0] = START_BYTE;
+        break; // Found start byte, proceed to read rest of packet
       }
     }
-  } catch (const std::exception &e) {
-    serial_->flush();
-    error_message_ = "Error waiting for start byte: " + std::string(e.what());
-    return false;
-  }
-}
 
-bool SerialReader::readPacketBytes(uint8_t *buffer, size_t size) {
-  try {
-    size_t total_read = 1;
-    while (total_read < size) {
-      size_t bytes_read = serial_->read(buffer + total_read, size - total_read);
+    // Step 2: Read the rest of the packet (PACKET_SIZE - 1 bytes)
+    size_t total_read = 1; // Already read start byte
+    while (total_read < PACKET_SIZE) {
+      // Check if data is available before reading
+      if (serial_->available() == 0) {
+        usleep(1000); // 1ms delay to prevent busy-waiting
+        continue;
+      }
+
+      size_t bytes_read =
+          serial_->read(packet + total_read, PACKET_SIZE - total_read);
       if (bytes_read == 0) {
-        return false; // Timeout
+        return false; // Timeout reading packet bytes
       }
 
       total_read += bytes_read;
     }
-    return true;
+
+    return true; // Successfully read complete packet
+
   } catch (const std::exception &e) {
-    error_message_ = "Error reading packet bytes: " + std::string(e.what());
+    serial_->flush();
+    error_message_ = "Error reading packet: " + std::string(e.what());
     return false;
   }
 }

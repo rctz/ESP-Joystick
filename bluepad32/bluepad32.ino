@@ -104,7 +104,7 @@ void serialSenderTask(void *p) {
     // Send complete packet
     Serial.write((uint8_t *)&pkt, sizeof(pkt));
 
-    vTaskDelay(20);
+    vTaskDelay(20); // 50Hz
   }
 }
 

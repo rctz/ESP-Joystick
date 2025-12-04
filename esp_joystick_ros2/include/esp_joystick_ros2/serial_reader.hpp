@@ -54,8 +54,7 @@ private:
   bool crc_validation_enabled_;
 
   uint8_t computeCRC(const uint8_t *data, size_t len) const;
-  bool waitForStartByte();
-  bool readPacketBytes(uint8_t *buffer, size_t size);
+  bool waitForStartByteAndReadPacket(uint8_t *packet);
   bool validatePacket(const uint8_t *packet) const;
   void parsePayload(const uint8_t *payload, JoyData &data) const;
 };

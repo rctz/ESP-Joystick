@@ -2,6 +2,7 @@
 #define ESP_JOYSTICK_ROS2__ESP_JOYSTICK_NODE_HPP_
 
 #include <atomic>
+#include <esp_joystick_interfaces/msg/joystick_info.hpp>
 #include <memory>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joy.hpp>
@@ -20,7 +21,8 @@ public:
 
 private:
   // ROS2 components
-  rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr joy_publisher_;
+  rclcpp::Publisher<esp_joystick_interfaces::msg::JoystickInfo>::SharedPtr
+      joy_publisher_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
   rclcpp::TimerBase::SharedPtr read_timer_;
 
@@ -54,10 +56,8 @@ private:
   void publish_timer_callback();
 
   // Data conversion
-  sensor_msgs::msg::Joy convert_to_joy_message(const JoyData &data) const;
-  void convert_buttons(uint16_t raw_buttons, uint8_t misc, uint8_t dpad,
-                       sensor_msgs::msg::Joy &joy_msg) const;
-  void convert_axes(const JoyData &data, sensor_msgs::msg::Joy &joy_msg) const;
+  esp_joystick_interfaces::msg::JoystickInfo
+  convert_to_joy_message(const JoyData &data) const;
 
   // Utility methods
   void serial_read_worker();

@@ -1,5 +1,8 @@
 #include "esp_joystick_ros2/esp_joystick_node.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_components/register_node_macro.hpp"
 #include <chrono>
+#include <memory>
 
 namespace esp_joystick_ros2 {
 
@@ -31,7 +34,7 @@ EspJoystickNode::~EspJoystickNode() {
 void EspJoystickNode::declare_parameters() {
   this->declare_parameter("serial_port", "/dev/ttyUSB0");
   this->declare_parameter("baud_rate", 115200);
-  this->declare_parameter("publish_rate", 100.0); // Hz
+  this->declare_parameter("publish_rate", 20.0); // Hz
   this->declare_parameter("max_button_count", 16);
   this->declare_parameter("max_axis_count", 8);
   this->declare_parameter("crc_validation_enabled", true);
@@ -76,9 +79,10 @@ void EspJoystickNode::initialize_serial() {
 
 void EspJoystickNode::setup_publishers_and_timers() {
   // Create joy publisher
-  joy_publisher_ = this->create_publisher<sensor_msgs::msg::Joy>("joy", 10);
+  joy_publisher_ =
+      this->create_publisher<esp_joystick_interfaces::msg::JoystickInfo>("joy",
+                                                                         10);
 
-  // Create timers
   auto publish_period =
       std::chrono::milliseconds(static_cast<int>(1000.0 / publish_rate_));
   publish_timer_ = this->create_wall_timer(
@@ -97,17 +101,14 @@ void EspJoystickNode::serial_read_worker() {
   while (running_ && rclcpp::ok()) {
     if (serial_reader_->isConnected()) {
       if (serial_reader_->readPacket(temp_data)) {
-        // Update latest data thread-safe
         std::lock_guard<std::mutex> lock(joy_data_mutex_);
         latest_joy_data_ = temp_data;
       } else {
-        // Print error message when packet reading fails
         RCLCPP_ERROR(this->get_logger(),
                      "Failed to read packet from serial: %s",
                      serial_reader_->getErrorMessage().c_str());
       }
     } else {
-      // Try to reconnect
       RCLCPP_WARN(this->get_logger(),
                   "Serial connection lost, attempting to reconnect...");
       if (serial_reader_->connect(serial_port_, baud_rate_)) {
@@ -143,111 +144,40 @@ void EspJoystickNode::publish_timer_callback() {
   joy_publisher_->publish(joy_msg);
 }
 
-sensor_msgs::msg::Joy
+esp_joystick_interfaces::msg::JoystickInfo
 EspJoystickNode::convert_to_joy_message(const JoyData &data) const {
-  sensor_msgs::msg::Joy joy_msg;
-  joy_msg.header.stamp = this->now();
-  joy_msg.header.frame_id = "joystick";
+  esp_joystick_interfaces::msg::JoystickInfo joy_msg;
 
-  // Set default sizes
-  joy_msg.buttons.resize(max_button_count_, 0);
-  joy_msg.axes.resize(max_axis_count_, 0.0);
+  // Convert 16-bit button mask to individual button states
+  // Based on typical gamepad layout:
+  joy_msg.y = (data.buttons >> 3) & 0x1;      // Y button (bit 3)
+  joy_msg.b = (data.buttons >> 1) & 0x1;      // B button (bit 1)
+  joy_msg.a = (data.buttons >> 0) & 0x1;      // A button (bit 0)
+  joy_msg.x = (data.buttons >> 2) & 0x1;      // X button (bit 2)
+  joy_msg.r1 = (data.buttons >> 5) & 0x1;     // R1 button (bit 5)
+  joy_msg.r2 = (data.buttons >> 7) & 0x1;     // R2 button (bit 7)
+  joy_msg.l1 = (data.buttons >> 4) & 0x1;     // L1 button (bit 4)
+  joy_msg.l2 = (data.buttons >> 6) & 0x1;     // L2 button (bit 6)
+  joy_msg.axis_l = (data.buttons >> 8) & 0x1; // L2 button (bit 6)
+  joy_msg.axis_r = (data.buttons >> 9) & 0x1; // L1 button (bit 4)
 
-  // Convert buttons
-  convert_buttons(data.buttons, data.misc, data.dpad, joy_msg);
+  // D-pad directions
+  joy_msg.up = (data.dpad >> 0) & 0x1;
+  joy_msg.down = (data.dpad >> 1) & 0x1;
+  joy_msg.right = (data.dpad >> 2) & 0x1;
+  joy_msg.left = (data.dpad >> 3) & 0x1;
 
-  // Convert analog axes
-  convert_axes(data, joy_msg);
+  // Misc buttons from misc byte
+  joy_msg.select = (data.misc >> 1) & 0x1; // Select bit 0
+  joy_msg.start = (data.misc >> 2) & 0x1;  // Start bit 1
+
+  // Normalize analog stick values
+  joy_msg.lx = static_cast<int16_t>(data.lx);
+  joy_msg.ly = static_cast<int16_t>(data.ly);
+  joy_msg.rx = static_cast<int16_t>(data.rx);
+  joy_msg.ry = static_cast<int16_t>(data.ry);
 
   return joy_msg;
-}
-
-void EspJoystickNode::convert_buttons(uint16_t raw_buttons, uint8_t misc,
-                                      uint8_t dpad,
-                                      sensor_msgs::msg::Joy &joy_msg) const {
-  // Convert 16-bit button mask to individual buttons
-  for (int i = 0; i < 16 && i < max_button_count_; ++i) {
-    joy_msg.buttons[i] = (raw_buttons >> i) & 0x1;
-  }
-
-  // Map misc buttons to additional button indices if space allows
-  if (max_button_count_ > 16) {
-    // Example mapping - adjust based on your specific requirements
-    joy_msg.buttons[16] = (misc >> 0) & 0x1; // Misc bit 0
-    if (max_button_count_ > 17) {
-      joy_msg.buttons[17] = (misc >> 1) & 0x1; // Misc bit 1
-    }
-  }
-
-  // Map dpad to additional buttons or axes
-  // D-pad typically has 8 directions: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W,
-  // 7=NW
-  if (max_axis_count_ >= 2) {
-    // Map dpad to axes (optional)
-    switch (dpad) {
-    case 0:
-      joy_msg.axes[4] = 0.0;
-      joy_msg.axes[5] = 1.0;
-      break; // N
-    case 1:
-      joy_msg.axes[4] = 1.0;
-      joy_msg.axes[5] = 1.0;
-      break; // NE
-    case 2:
-      joy_msg.axes[4] = 1.0;
-      joy_msg.axes[5] = 0.0;
-      break; // E
-    case 3:
-      joy_msg.axes[4] = 1.0;
-      joy_msg.axes[5] = -1.0;
-      break; // SE
-    case 4:
-      joy_msg.axes[4] = 0.0;
-      joy_msg.axes[5] = -1.0;
-      break; // S
-    case 5:
-      joy_msg.axes[4] = -1.0;
-      joy_msg.axes[5] = -1.0;
-      break; // SW
-    case 6:
-      joy_msg.axes[4] = -1.0;
-      joy_msg.axes[5] = 0.0;
-      break; // W
-    case 7:
-      joy_msg.axes[4] = -1.0;
-      joy_msg.axes[5] = 1.0;
-      break; // NW
-    default:
-      joy_msg.axes[4] = 0.0;
-      joy_msg.axes[5] = 0.0;
-      break; // Center/Released
-    }
-  }
-}
-
-void EspJoystickNode::convert_axes(const JoyData &data,
-                                   sensor_msgs::msg::Joy &joy_msg) const {
-  // Normalize analog stick values from int16 range (-32768 to 32767) to float
-  // (-1.0 to 1.0)
-  const float normalization_factor = 32767.0f;
-
-  // Left stick (axes 0 and 1)
-  if (max_axis_count_ > 0) {
-    joy_msg.axes[0] = static_cast<float>(data.lx) / normalization_factor;
-  }
-  if (max_axis_count_ > 1) {
-    joy_msg.axes[1] = -static_cast<float>(data.ly) /
-                      normalization_factor; // Invert Y for standard convention
-  }
-
-  // Right stick (axes 2 and 3)
-  if (max_axis_count_ > 2) {
-    joy_msg.axes[2] = static_cast<float>(data.rx) / normalization_factor;
-  }
-  if (max_axis_count_ > 3) {
-    joy_msg.axes[3] = -static_cast<float>(data.ry) /
-                      normalization_factor; // Invert Y for standard convention
-  }
 }
 
 void EspJoystickNode::log_connection_status(bool connected) const {
@@ -261,5 +191,19 @@ void EspJoystickNode::log_connection_status(bool connected) const {
 
 } // namespace esp_joystick_ros2
 
-#include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(esp_joystick_ros2::EspJoystickNode)
+int main(int argc, char *argv[]) {
+  rclcpp::init(argc, argv);
+
+  auto node = std::make_shared<esp_joystick_ros2::EspJoystickNode>();
+
+  try {
+    rclcpp::spin(node);
+  } catch (const std::exception &e) {
+    RCLCPP_ERROR(node->get_logger(), "Exception in main: %s", e.what());
+    rclcpp::shutdown();
+    return 1;
+  }
+
+  rclcpp::shutdown();
+  return 0;
+}
