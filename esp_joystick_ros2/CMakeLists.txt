@@ -10,7 +10,8 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(cxx-serial REQUIRED)
+find_package(serial REQUIRED)
+# find_package(cxx-serial REQUIRED)
 
 # Include directories
 include_directories(include)
@@ -35,18 +36,18 @@ ament_target_dependencies(esp_joystick_component
   rclcpp
   rclcpp_components
   sensor_msgs
+  serial
 )
-target_link_libraries(esp_joystick_component ${cxx-serial_LIBRARIES})
 
 # Executable dependencies
 ament_target_dependencies(esp_joystick_node
   rclcpp
   rclcpp_components
   sensor_msgs
+  serial
 )
 target_link_libraries(esp_joystick_node
   esp_joystick_component
-  ${cxx-serial_LIBRARIES}
 )
 
 # Register the component
