@@ -20,12 +20,28 @@ JoyPacket joy;
 // Mutex for safe cross-core access
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
+// Timestamp for last data update
+unsigned long lastDataTime = 0;
+
 uint8_t computeCRC(uint8_t *data, uint8_t len) {
   uint8_t crc = 0;
   for (int i = 0; i < len; i++) {
     crc ^= data[i];
   }
   return crc;
+}
+
+void resetJoyData() {
+  joy.header = 0xAA;
+  joy.length = 12;
+  joy.buttons = 0;
+  joy.misc = 0;
+  joy.dpad = 0;
+  joy.lx = 0;
+  joy.ly = 0;
+  joy.rx = 0;
+  joy.ry = 0;
+  joy.crc = 0;
 }
 
 ControllerPtr myControllers[BP32_MAX_GAMEPADS];
@@ -66,16 +82,29 @@ void processGamepad(ControllerPtr ctl) {
   joy.rx = ctl->axisRX();
   joy.ry = ctl->axisRY();
 
+  // Update timestamp when new data is received
+  lastDataTime = millis();
+
   portEXIT_CRITICAL(&mux);
 }
 
 void processControllers() {
+  bool anyControllerActive = false;
+
   for (auto ctl : myControllers) {
     if (ctl && ctl->isConnected() && ctl->hasData()) {
       if (ctl->isGamepad()) {
         processGamepad(ctl);
+        anyControllerActive = true;
       }
     }
+  }
+
+  // If no controllers are active, reset joystick data
+  if (!anyControllerActive) {
+    portENTER_CRITICAL(&mux);
+    resetJoyData();
+    portEXIT_CRITICAL(&mux);
   }
 }
 
@@ -92,11 +121,23 @@ void serialSenderTask(void *p) {
   for (;;) {
 
     JoyPacket pkt;
+    unsigned long now = 0;
+    now = millis();
 
-    // Safely copy shared struct
-    portENTER_CRITICAL(&mux);
-    pkt = joy;
-    portEXIT_CRITICAL(&mux);
+    // Check for timeout (1 second = 1000ms)
+    if (now - lastDataTime > 1000) {
+      // Reset joystick data to initial values
+      portENTER_CRITICAL(&mux);
+      resetJoyData();
+      lastDataTime = now; // Update to prevent continuous resets
+      pkt = joy;
+      portEXIT_CRITICAL(&mux);
+    } else {
+      // Safely copy shared struct
+      portENTER_CRITICAL(&mux);
+      pkt = joy;
+      portEXIT_CRITICAL(&mux);
+    }
 
     // Calculate CRC for all bytes except CRC itself
     pkt.crc = computeCRC((uint8_t *)&pkt, sizeof(pkt) - 1);
@@ -111,6 +152,10 @@ void serialSenderTask(void *p) {
 void setup() {
   Serial.begin(115200);
   delay(200);
+
+  // Initialize joystick data to zero
+  resetJoyData();
+  lastDataTime = millis();
 
   Serial.printf("Bluepad32 Firmware: %s\n", BP32.firmwareVersion());
 
