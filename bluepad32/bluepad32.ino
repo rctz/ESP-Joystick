@@ -23,6 +23,9 @@ portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 // Timestamp for last data update
 unsigned long lastDataTime = 0;
 
+// Timeout to reset joy value if joy loss (ms)
+uint16_t joyLossTimeout = 500;
+
 uint8_t computeCRC(uint8_t *data, uint8_t len) {
   uint8_t crc = 0;
   for (int i = 0; i < len; i++) {
@@ -125,7 +128,7 @@ void serialSenderTask(void *p) {
     now = millis();
 
     // Check for timeout (1 second = 1000ms)
-    if (now - lastDataTime > 1000) {
+    if (now - lastDataTime > joyLossTimeout) {
       // Reset joystick data to initial values
       portENTER_CRITICAL(&mux);
       resetJoyData();
