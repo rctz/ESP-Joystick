@@ -10,15 +10,10 @@ EspJoystickNode::EspJoystickNode(const rclcpp::NodeOptions &options)
     : Node("esp_joystick_node", options), running_(false) {
   RCLCPP_INFO(this->get_logger(), "Initializing ESP Joystick Node...");
 
-  // Declare and get parameters
   declare_parameters();
   get_parameters();
-
-  // Initialize serial communication
   initialize_serial();
-
-  // Setup ROS2 publishers and timers
-  setup_publishers_and_timers();
+  setup_publishers();
 
   RCLCPP_INFO(this->get_logger(), "ESP Joystick Node initialized successfully");
 }
@@ -34,25 +29,18 @@ EspJoystickNode::~EspJoystickNode() {
 void EspJoystickNode::declare_parameters() {
   this->declare_parameter("serial_port", "/dev/ttyUSB0");
   this->declare_parameter("baud_rate", 115200);
-  this->declare_parameter("publish_rate", 20.0); // Hz
-  this->declare_parameter("max_button_count", 16);
-  this->declare_parameter("max_axis_count", 8);
   this->declare_parameter("crc_validation_enabled", true);
 }
 
 void EspJoystickNode::get_parameters() {
   serial_port_ = this->get_parameter("serial_port").as_string();
   baud_rate_ = this->get_parameter("baud_rate").as_int();
-  publish_rate_ = this->get_parameter("publish_rate").as_double();
-  max_button_count_ = this->get_parameter("max_button_count").as_int();
-  max_axis_count_ = this->get_parameter("max_axis_count").as_int();
   crc_validation_enabled_ =
       this->get_parameter("crc_validation_enabled").as_bool();
 
   RCLCPP_INFO(this->get_logger(), "Parameters:");
   RCLCPP_INFO(this->get_logger(), "  Serial Port: %s", serial_port_.c_str());
   RCLCPP_INFO(this->get_logger(), "  Baud Rate: %d", baud_rate_);
-  RCLCPP_INFO(this->get_logger(), "  Publish Rate: %.1f Hz", publish_rate_);
   RCLCPP_INFO(this->get_logger(), "  CRC Validation: %s",
               crc_validation_enabled_ ? "ENABLED" : "DISABLED");
 }
@@ -77,22 +65,15 @@ void EspJoystickNode::initialize_serial() {
   serial_thread_ = std::thread(&EspJoystickNode::serial_read_worker, this);
 }
 
-void EspJoystickNode::setup_publishers_and_timers() {
-  // Create joy publisher
+void EspJoystickNode::setup_publishers() {
+  // Using Sensor QOS
+  rclcpp::QoS qos(rclcpp::KeepLast(10));
+  qos.best_effort();
+  qos.durability_volatile();
+
   joy_publisher_ =
       this->create_publisher<esp_joystick_interfaces::msg::JoystickInfo>("joy",
                                                                          10);
-
-  auto publish_period =
-      std::chrono::milliseconds(static_cast<int>(1000.0 / publish_rate_));
-  publish_timer_ = this->create_wall_timer(
-      publish_period,
-      std::bind(&EspJoystickNode::publish_timer_callback, this));
-
-  // Check for connection status periodically
-  read_timer_ = this->create_wall_timer(
-      std::chrono::seconds(1),
-      std::bind(&EspJoystickNode::read_timer_callback, this));
 }
 
 void EspJoystickNode::serial_read_worker() {
@@ -100,26 +81,27 @@ void EspJoystickNode::serial_read_worker() {
 
   while (running_ && rclcpp::ok()) {
     if (serial_reader_->isConnected()) {
-      if (serial_reader_->readPacket(temp_data)) {
-        std::lock_guard<std::mutex> lock(joy_data_mutex_);
-        latest_joy_data_ = temp_data;
-      } else {
-        RCLCPP_ERROR(this->get_logger(),
-                     "Failed to read packet from serial: %s",
-                     serial_reader_->getErrorMessage().c_str());
-      }
-    } else {
-      RCLCPP_WARN(this->get_logger(),
-                  "Serial connection lost, attempting to reconnect...");
-      if (serial_reader_->connect(serial_port_, baud_rate_)) {
-        log_connection_status(true);
-      } else {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-      }
-    }
 
-    // Small delay to prevent CPU spinning
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      // ฟังก์ชันนี้ควรเป็นแบบ Blocking หรือมี timeout สั้นๆ
+      if (serial_reader_->readPacket(temp_data)) {
+
+        // --- CRITICAL SECTION: PUBLISH IMMEDIATELY ---
+        // ไม่รอ Timer แล้ว ได้ของปุ๊บ ส่งปั๊บ
+        auto joy_msg = convert_to_joy_message(temp_data);
+
+        // ใส่ Timestamp ล่าสุดเพื่อให้ ROS รู้ว่าข้อมูลสดแค่ไหน
+        joy_msg.header.stamp = this->now();
+        joy_msg.header.frame_id = "joy_link";
+
+        joy_publisher_->publish(joy_msg);
+        // ---------------------------------------------
+      }
+
+    } else {
+      RCLCPP_WARN(this->get_logger(), "Reconnecting...");
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      serial_reader_->connect(serial_port_, baud_rate_);
+    }
   }
 }
 
@@ -127,21 +109,6 @@ void EspJoystickNode::read_timer_callback() {
   if (!serial_reader_->isConnected()) {
     RCLCPP_WARN(this->get_logger(), "Serial connection status: disconnected");
   }
-}
-
-void EspJoystickNode::publish_timer_callback() {
-  if (!serial_reader_->isConnected()) {
-    return;
-  }
-
-  JoyData current_data;
-  {
-    std::lock_guard<std::mutex> lock(joy_data_mutex_);
-    current_data = latest_joy_data_;
-  }
-
-  auto joy_msg = convert_to_joy_message(current_data);
-  joy_publisher_->publish(joy_msg);
 }
 
 esp_joystick_interfaces::msg::JoystickInfo

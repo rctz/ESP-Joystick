@@ -97,45 +97,36 @@ uint8_t SerialReader::computeCRC(const uint8_t *data, size_t len) const {
 bool SerialReader::waitForStartByteAndReadPacket(uint8_t *packet) {
   uint8_t byte;
   try {
-    // Step 1: Find start byte
+
     while (true) {
-      // Check if there are bytes available in the buffer first
-      if (serial_->available() == 0) {
-        // No data available, wait a bit and try again
-        usleep(1000); // 1ms delay to prevent busy-waiting
-        continue;
-      }
-
       size_t bytes_read = serial_->read(&byte, 1);
+
       if (bytes_read == 0) {
-        return false; // Timeout
+        return false;
       }
 
-      if (byte == START_BYTE) {
-        packet[0] = START_BYTE;
-        break; // Found start byte, proceed to read rest of packet
+      if (byte == START_BYTE) { // สมมติ START_BYTE = 0xAA
+        packet[0] = byte;
+        break;
       }
     }
 
-    // Step 2: Read the rest of the packet (PACKET_SIZE - 1 bytes)
-    size_t total_read = 1; // Already read start byte
-    while (total_read < PACKET_SIZE) {
-      // Check if data is available before reading
-      if (serial_->available() == 0) {
-        usleep(1000); // 1ms delay to prevent busy-waiting
-        continue;
-      }
+    size_t total_read = 1;
+    size_t to_read = PACKET_SIZE - 1;
 
-      size_t bytes_read =
-          serial_->read(packet + total_read, PACKET_SIZE - total_read);
+    while (total_read < PACKET_SIZE) {
+
+      size_t bytes_read = serial_->read(packet + total_read, to_read);
+
       if (bytes_read == 0) {
-        return false; // Timeout reading packet bytes
+        return false;
       }
 
       total_read += bytes_read;
+      to_read -= bytes_read;
     }
 
-    return true; // Successfully read complete packet
+    return true;
 
   } catch (const std::exception &e) {
     serial_->flush();

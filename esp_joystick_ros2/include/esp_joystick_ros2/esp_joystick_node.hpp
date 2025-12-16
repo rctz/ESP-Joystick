@@ -23,7 +23,6 @@ private:
   // ROS2 components
   rclcpp::Publisher<esp_joystick_interfaces::msg::JoystickInfo>::SharedPtr
       joy_publisher_;
-  rclcpp::TimerBase::SharedPtr publish_timer_;
   rclcpp::TimerBase::SharedPtr read_timer_;
 
   // Serial communication
@@ -32,28 +31,20 @@ private:
   // Node parameters
   std::string serial_port_;
   int baud_rate_;
-  double publish_rate_;
-  int max_button_count_;
-  int max_axis_count_;
   bool crc_validation_enabled_;
 
   // Thread control
   std::atomic<bool> running_;
   std::thread serial_thread_;
 
-  // Latest joystick data
-  JoyData latest_joy_data_;
-  std::mutex joy_data_mutex_;
-
   // Methods
   void declare_parameters();
   void get_parameters();
   void initialize_serial();
-  void setup_publishers_and_timers();
+  void setup_publishers();
 
   // Timer callbacks
   void read_timer_callback();
-  void publish_timer_callback();
 
   // Data conversion
   esp_joystick_interfaces::msg::JoystickInfo
