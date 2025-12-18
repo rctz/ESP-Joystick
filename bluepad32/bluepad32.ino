@@ -89,5 +89,5 @@ void loop() {
     processControllers();
   }
 
-  delay(1);
+  delay(5);
 }
